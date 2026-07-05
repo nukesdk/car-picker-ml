@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoPicker — Smart Car Recommendation Engine</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Bricolage+Grotesque:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --bg-2: #12121a;
+    --fg: #f5f5f7;
+    --muted: #9b9ba8;
+    --accent: #ff7a18;
+    --accent-2: #ff3d3d;
+    --accent-3: #ffb84d;
+    --card: rgba(255,255,255,0.04);
+    --border: rgba(255,255,255,0.08);
+    --success: #4ade80;
+  }
+  * { font-family: 'Space Grotesk', sans-serif; }
+  body { background: var(--bg); color: var(--fg); overflow-x: hidden; }
+  .font-display { font-family: 'Bricolage Grotesque', sans-serif; }
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(255,122,24,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,122,24,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  .glow-orb {
+    position: absolute; border-radius: 50%;
+    filter: blur(80px); opacity: 0.4; pointer-events: none;
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #ff7a18 0%, #ff3d3d 50%, #ffb84d 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .card-glass {
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .chip { transition: all 0.2s ease; cursor: pointer; user-select: none; }
+  .chip:hover { transform: translateY(-2px); }
+  .chip.active {
+    background: linear-gradient(135deg, #ff7a18, #ff3d3d);
+    border-color: transparent; color: white;
+    box-shadow: 0 8px 20px -8px rgba(255,122,24,0.6);
+  }
+  input[type="range"] {
+    -webkit-appearance: none; height: 6px;
+    background: linear-gradient(to right, #ff7a18 0%, #ff3d3d var(--val, 50%), rgba(255,255,255,0.1) var(--val, 50%));
+    border-radius: 999px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 24px; height: 24px;
+    background: white; border: 3px solid #ff7a18;
+    border-radius: 50%; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(255,122,24,0.5);
+    transition: transform 0.15s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  .car-card {
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0; transform: translateY(30px);
+    animation: slideUp 0.6s forwards;
+  }
+  @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
+  .match-ring { transform: rotate(-90deg); }
+  .match-ring circle { transition: stroke-dashoffset 1s ease-out; }
+  .pulse-dot {
+    width: 8px; height: 8px; background: #4ade80;
+    border-radius: 50%; box-shadow: 0 0 0 0 rgba(74,222,128,0.7);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(74,222,128,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  }
+  .toast {
+    position: fixed; bottom: 30px; left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    opacity: 0; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 1000;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .loading-bar {
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #ff7a18, transparent);
+    background-size: 200% 100%;
+    animation: loading 1.5s linear infinite;
+  }
+  @keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .number-flow { font-variant-numeric: tabular-nums; }
+  .car-img {
+    background: linear-gradient(135deg, #1a1a25, #0a0a0f);
+    position: relative; overflow: hidden;
+  }
+  .car-img::before {
+    content: ''; position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 50%, rgba(255,122,24,0.15), transparent 50%),
+      radial-gradient(circle at 70% 50%, rgba(255,61,61,0.1), transparent 50%);
+  }
+  .glass-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: rgba(255,122,24,0.3); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,122,24,0.5); }
+</style>
+</head>
+<body class="min-h-screen relative">
+
+<div class="fixed inset-0 bg-grid pointer-events-none"></div>
+<div class="glow-orb" style="width:500px;height:500px;background:#ff7a18;top:-100px;right:-100px;"></div>
+<div class="glow-orb" style="width:400px;height:400px;background:#ff3d3d;top:50%;left:-100px;opacity:0.25;"></div>
+<div class="glow-orb" style="width:600px;height:600px;background:#ffb84d;bottom:-200px;right:30%;opacity:0.15;"></div>
+
+<header class="relative z-10 px-6 lg:px-12 py-6 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/>
+        <circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>
+      </svg>
+    </div>
+    <div>
+      <div class="font-display font-bold text-xl leading-none">AutoPicker</div>
+      <div class="text-xs text-zinc-500 mt-0.5">Smart Car Match Engine</div>
+    </div>
+  </div>
+  <div class="flex items-center gap-6">
+    <div class="hidden md:flex items-center gap-2 text-sm text-zinc-400">
+      <div class="pulse-dot"></div>
+      <span>Database live · <span id="car-count">0</span> cars</span>
+    </div>
+    <a href="#how-it-works" class="text-sm text-zinc-400 hover:text-white transition">How it works</a>
+  </div>
+</header>
+
+<section class="relative z-10 px-6 lg:px-12 pt-12 pb-8">
+  <div class="max-w-6xl mx-auto">
+    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 text-orange-300 text-sm mb-6">
+      <span>⚡</span> AI-Powered Budget Analysis Model
+    </div>
+    <h1 class="font-display font-extrabold text-5xl md:text-7xl lg:text-8xl leading-[0.95] tracking-tight">
+      Tell us what you need.<br>
+      <span class="gradient-text">We'll find your car.</span>
+    </h1>
+    <p class="mt-6 text-lg md:text-xl text-zinc-400 max-w-2xl">
+      No more scrolling through endless reviews. Describe your requirements once — our scoring engine analyzes
+      <span class="text-white font-medium">budget fit, body type, fuel, seating, usage, and value</span>
+      across 35+ cars to recommend the perfect match.
+    </p>
+  </div>
+</section>
+
+<section class="relative z-10 px-6 lg:px-12 pb-12">
+  <div class="max-w-6xl mx-auto">
+    <div class="card-glass rounded-3xl p-6 md:p-10">
+
+      <div class="mb-10">
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 01</div>
+            <h3 class="font-display text-2xl font-bold">What's your budget?</h3>
+          </div>
+          <div class="text-right">
+            <div class="font-display text-3xl md:text-4xl font-bold gradient-text number-flow" id="budget-display">₹10,00,000</div>
+            <div class="text-xs text-zinc-500 mt-1">on-road price</div>
+          </div>
+        </div>
+        <input type="range" id="budget-slider" min="300000" max="10000000" step="50000" value="1000000" class="w-full">
+        <div class="flex justify-between text-xs text-zinc-500 mt-2">
+          <span>₹3L</span><span>₹25L</span><span>₹50L</span><span>₹75L</span><span>₹1Cr</span>
+        </div>
+      </div>
+
+      <div class="glass-divider my-10"></div>
+
+      <div class="mb-10">
+        <div class="mb-5">
+          <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 02</div>
+          <h3 class="font-display text-2xl font-bold">Preferred body type</h3>
+          <p class="text-sm text-zinc-500 mt-1">Select all that you're open to</p>
+        </div>
+        <div class="flex flex-wrap gap-3" id="body-types">
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Hatchback">Hatchback</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Sedan">Sedan</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Compact SUV">Compact SUV</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="SUV">SUV</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="MPV">MPV</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Luxury">Luxury Sedan</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Sports">Sports Car</div>
+          <div class="chip px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="EV">Electric</div>
+        </div>
+      </div>
+
+      <div class="mb-10 grid md:grid-cols-2 gap-8">
+        <div>
+          <div class="mb-5">
+            <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 03</div>
+            <h3 class="font-display text-2xl font-bold">Fuel type</h3>
+          </div>
+          <div class="flex flex-wrap gap-3" id="fuel-types">
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Petrol">Petrol</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Diesel">Diesel</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Electric">Electric</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="Hybrid">Hybrid</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="CNG">CNG</div>
+          </div>
+        </div>
+        <div>
+          <div class="mb-5">
+            <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 04</div>
+            <h3 class="font-display text-2xl font-bold">Seating capacity</h3>
+          </div>
+          <div class="flex flex-wrap gap-3" id="seating">
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="2">2</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="4">4</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="5">5</div>
+            <div class="chip px-4 py-2 rounded-xl border border-white/10 bg-white/5 text-sm font-medium" data-value="7">7</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-10">
+        <div class="mb-5">
+          <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 05</div>
+          <h3 class="font-display text-2xl font-bold">Primary usage</h3>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="usage">
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="City">
+            <div class="text-2xl mb-1">🏙️</div>City commute
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Highway">
+            <div class="text-2xl mb-1">🛣️</div>Highway trips
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Mixed">
+            <div class="text-2xl mb-1">🔀</div>Mixed usage
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Off-road">
+            <div class="text-2xl mb-1">⛰️</div>Off-road
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-10">
+        <div class="mb-5">
+          <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">STEP 06</div>
+          <h3 class="font-display text-2xl font-bold">What matters most?</h3>
+          <p class="text-sm text-zinc-500 mt-1">Pick your top priority — we'll weight the scoring accordingly</p>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="priority">
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Mileage">
+            <div class="text-2xl mb-1">⛽</div>Fuel economy
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Safety">
+            <div class="text-2xl mb-1">🛡️</div>Safety
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Features">
+            <div class="text-2xl mb-1">✨</div>Features
+          </div>
+          <div class="chip px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-center" data-value="Performance">
+            <div class="text-2xl mb-1">🚀</div>Performance
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-white/10">
+        <div class="text-sm text-zinc-500"><span id="selection-summary">Make your selections above</span></div>
+        <button id="find-btn" class="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold text-base hover:shadow-2xl hover:shadow-orange-500/30 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2">
+          <span>Find my car</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="results" class="relative z-10 px-6 lg:px-12 pb-20 hidden">
+  <div class="max-w-6xl mx-auto">
+    <div id="loading" class="hidden">
+      <div class="loading-bar mb-8"></div>
+      <div class="text-center py-12">
+        <div class="font-display text-2xl font-bold mb-2">Analyzing your requirements...</div>
+        <div class="text-zinc-500 text-sm" id="loading-step">Running budget fit analysis</div>
+      </div>
+    </div>
+    <div id="results-content" class="hidden">
+      <div class="flex items-center justify-between mb-8">
+        <div>
+          <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">YOUR MATCHES</div>
+          <h2 class="font-display text-3xl md:text-4xl font-bold">Top picks for you</h2>
+        </div>
+        <button id="reset-btn" class="text-sm text-zinc-400 hover:text-white transition flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>
+          </svg>Start over
+        </button>
+      </div>
+      <div class="card-glass rounded-2xl p-6 mb-8">
+        <div class="grid md:grid-cols-3 gap-6">
+          <div>
+            <div class="text-xs text-zinc-500 mb-1">Your Budget</div>
+            <div class="font-display text-3xl font-bold gradient-text number-flow" id="result-budget">₹10,00,000</div>
+          </div>
+          <div>
+            <div class="text-xs text-zinc-500 mb-1">Cars Analyzed</div>
+            <div class="font-display text-3xl font-bold" id="result-analyzed">0</div>
+          </div>
+          <div>
+            <div class="text-xs text-zinc-500 mb-1">Best Match Score</div>
+            <div class="font-display text-3xl font-bold text-green-400" id="result-best-score">0%</div>
+          </div>
+        </div>
+      </div>
+      <div id="car-cards" class="space-y-6 mb-10"></div>
+      <div class="card-glass rounded-2xl p-6 md:p-8">
+        <div class="mb-6">
+          <div class="text-xs text-orange-400 font-semibold tracking-wider mb-1">BUDGET ANALYSIS</div>
+          <h3 class="font-display text-2xl font-bold">Where each car sits in your budget</h3>
+          <p class="text-sm text-zinc-500 mt-1">Green = ideal fit (70-100% of budget) · Amber = under-utilizing · Red = over budget</p>
+        </div>
+        <div style="height: 280px;" class="relative"><canvas id="budgetChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how-it-works" class="relative z-10 px-6 lg:px-12 py-20 border-t border-white/5">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-12">
+      <div class="text-xs text-orange-400 font-semibold tracking-wider mb-2">THE MODEL</div>
+      <h2 class="font-display text-4xl md:text-5xl font-bold mb-4">How the scoring engine works</h2>
+      <p class="text-zinc-400 max-w-2xl mx-auto">
+        Every car is scored on a 0–100 scale across six weighted dimensions. The model balances your hard constraints (budget, seating) with soft preferences (fuel, body type, usage, priority).
+      </p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">WEIGHT: 35%</div>
+        <h4 class="font-display text-xl font-bold mb-2">Budget Fit</h4>
+        <p class="text-sm text-zinc-400">Sweet spot is 70–95% of your budget — well-utilized without stretching. Cars below 50% lose points; cars above 100% are filtered out.</p>
+      </div>
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">WEIGHT: 20%</div>
+        <h4 class="font-display text-xl font-bold mb-2">Body Type Match</h4>
+        <p class="text-sm text-zinc-400">Direct match against your selected body types. Multiple selections still rank by how well other attributes align.</p>
+      </div>
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><path d="M3 12h18M12 3v18"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">WEIGHT: 15%</div>
+        <h4 class="font-display text-xl font-bold mb-2">Fuel Preference</h4>
+        <p class="text-sm text-zinc-400">Filters by chosen fuel types. If none picked, scoring falls back to usage suitability (e.g., diesel for highway).</p>
+      </div>
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">WEIGHT: 10% each</div>
+        <h4 class="font-display text-xl font-bold mb-2">Seating & Usage</h4>
+        <p class="text-sm text-zinc-400">Seating must meet your minimum. Usage fine-tunes — city rewards mileage, highway rewards safety & power, off-road rewards ground clearance.</p>
+      </div>
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">WEIGHT: 10%</div>
+        <h4 class="font-display text-xl font-bold mb-2">Priority Boost</h4>
+        <p class="text-sm text-zinc-400">Whatever you picked as your top priority — mileage, safety, features, or performance — gets a 10% boost on its respective attribute.</p>
+      </div>
+      <div class="card-glass rounded-2xl p-6">
+        <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff7a18" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <div class="text-xs text-orange-400 font-semibold mb-1">TRANSPARENCY</div>
+        <h4 class="font-display text-xl font-bold mb-2">Why this car?</h4>
+        <p class="text-sm text-zinc-400">Every recommendation includes a plain-English breakdown of why it matched and which dimensions helped or hurt its score.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="relative z-10 px-6 lg:px-12 py-20 border-t border-white/5">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid md:grid-cols-2 gap-12 items-start">
+      <div>
+        <div class="text-xs text-orange-400 font-semibold tracking-wider mb-2">DEPLOYMENT</div>
+        <h2 class="font-display text-4xl md:text-5xl font-bold mb-6">Host this on Render in 5 minutes</h2>
+        <p class="text-zinc-400 mb-8">
+          Since AutoPicker is a fully client-side app (no backend, no database), it deploys as a Static Site. Here's the exact step-by-step.
+        </p>
+        <div class="space-y-4">
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center font-bold text-orange-300 text-sm">1</div>
+            <div>
+              <div class="font-semibold mb-1">Save the file</div>
+              <div class="text-sm text-zinc-400">Save this entire HTML as <code class="px-1.5 py-0.5 bg-white/5 rounded text-orange-300">index.html</code> in a new folder.</div>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center font-bold text-orange-300 text-sm">2</div>
+            <div>
+              <div class="font-semibold mb-1">Push to GitHub</div>
+              <div class="text-sm text-zinc-400">Create a new repo and upload the file. Or from terminal:</div>
+              <pre class="mt-2 p-3 bg-black/40 rounded-lg text-xs text-zinc-300 overflow-x-auto"><code>git init
+git add .
+git commit -m "AutoPicker"
+git branch -M main
+git remote add origin &lt;your-repo-url&gt;
+git push -u origin main</code></pre>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center font-bold text-orange-300 text-sm">3</div>
+            <div>
+              <div class="font-semibold mb-1">Create a Static Site on Render</div>
+              <div class="text-sm text-zinc-400">Go to <a href="https://render.com" target="_blank" class="text-orange-300 underline">render.com</a> → <span class="text-white">New +</span> → <span class="text-white">Static Site</span> → Connect your GitHub repo.</div>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center font-bold text-orange-300 text-sm">4</div>
+            <div>
+              <div class="font-semibold mb-1">Configure build settings</div>
+              <div class="text-sm text-zinc-400 mb-2">Use these exact values:</div>
+              <div class="bg-black/40 rounded-lg p-4 text-xs space-y-2 font-mono">
+                <div><span class="text-zinc-500">Build Command:</span> <span class="text-green-300">(leave empty)</span></div>
+                <div><span class="text-zinc-500">Publish Directory:</span> <span class="text-orange-300">.</span></div>
+                <div><span class="text-zinc-500">Branch:</span> <span class="text-orange-300">main</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center font-bold text-orange-300 text-sm">5</div>
+            <div>
+              <div class="font-semibold mb-1">Deploy</div>
+              <div class="text-sm text-zinc-400">Click <span class="text-white">Create Static Site</span>. Render gives you a live URL like <code class="px-1.5 py-0.5 bg-white/5 rounded text-orange-300">https://autopicker.onrender.com</code> in under a minute.</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-8 p-4 rounded-xl bg-orange-500/5 border border-orange-500/20 text-sm">
+          <div class="font-semibold text-orange-300 mb-1">Tip</div>
+          <div class="text-zinc-400">Add a custom domain from Render's dashboard → Settings → Custom Domains. Free SSL is included automatically.</div>
+        </div>
+      </div>
+      <div class="card-glass rounded-2xl p-6 md:p-8">
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-3 h-3 rounded-full bg-red-500"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500"></div>
+          <div class="ml-3 text-xs text-zinc-500">render.yaml</div>
+        </div>
+        <pre class="text-xs md:text-sm text-zinc-300 overflow-x-auto leading-relaxed"><code><span class="text-zinc-500"># Optional: add this file to repo root</span>
+<span class="text-zinc-500"># for one-click blueprint deployment</span>
+
+<span class="text-orange-300">services</span>:
+  - <span class="text-orange-300">type</span>: web
+    <span class="text-orange-300">name</span>: autopicker
+    <span class="text-orange-300">env</span>: static
+    <span class="text-orange-300">buildCommand</span>: <span class="text-green-300">""</span>
+    <span class="text-orange-300">publishDir</span>: <span class="text-green-300">.</span>
+    <span class="text-orange-300">pullsBeforeDeploy</span>: <span class="text-purple-300">true</span>
+    <span class="text-orange-300">headers</span>:
+      - <span class="text-orange-300">path</span>: /*
+        <span class="text-orange-300">name</span>: Cache-Control
+        <span class="text-orange-300">value</span>: <span class="text-green-300">no-cache</span>
+    <span class="text-orange-300">routes</span>:
+      - <span class="text-orange-300">type</span>: rewrite
+        <span class="text-orange-300">source</span>: /*
+        <span class="text-orange-300">destination</span>: <span class="text-green-300">/index.html</span></code></pre>
+        <div class="mt-6 pt-6 border-t border-white/10">
+          <div class="text-xs text-zinc-500 mb-2">Free tier includes:</div>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> 100 GB bandwidth</div>
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> Automatic HTTPS</div>
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> Git-based deploys</div>
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> Custom domains</div>
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> Preview branches</div>
+            <div class="flex items-center gap-2"><span class="text-green-400">✓</span> Global CDN</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="relative z-10 px-6 lg:px-12 py-10 border-t border-white/5">
+  <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-zinc-500">
+    <div>AutoPicker — Smart car recommendation engine</div>
+    <div>Built with vanilla JS · Tailwind · Chart.js</div>
+  </div>
+</footer>
+
+<div id="toast" class="toast px-6 py-4 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl text-sm"></div>
+
+<script>
+// ============ CAR DATABASE ============
+const cars = [
+  { id: 1, name: "Maruti Suzuki Swift", brand: "Maruti Suzuki", bodyType: "Hatchback", fuel: "Petrol", price: 650000, mileage: 22.5, safety: 3, seating: 5, power: 89, features: 6, transmission: "Manual/AMT", groundClearance: 170, bootSpace: 265, tags: ["City","Reliable","Economical"] },
+  { id: 2, name: "Tata Tiago", brand: "Tata", bodyType: "Hatchback", fuel: "Petrol", price: 580000, mileage: 19.8, safety: 4, seating: 5, power: 86, features: 6, transmission: "Manual/AMT", groundClearance: 170, bootSpace: 242, tags: ["City","Safe","Value"] },
+  { id: 3, name: "Hyundai Grand i10 Nios", brand: "Hyundai", bodyType: "Hatchback", fuel: "Petrol", price: 620000, mileage: 20.7, safety: 3, seating: 5, power: 83, features: 7, transmission: "Manual/AMT", groundClearance: 165, bootSpace: 260, tags: ["City","Features","Premium"] },
+  { id: 4, name: "Maruti Baleno", brand: "Maruti Suzuki", bodyType: "Hatchback", fuel: "Petrol", price: 720000, mileage: 22.9, safety: 4, seating: 5, power: 90, features: 8, transmission: "Manual/CVT", groundClearance: 170, bootSpace: 318, tags: ["City","Premium","Spacious"] },
+  { id: 5, name: "Honda City", brand: "Honda", bodyType: "Sedan", fuel: "Petrol", price: 1250000, mileage: 18.4, safety: 5, seating: 5, power: 121, features: 8, transmission: "Manual/CVT", groundClearance: 165, bootSpace: 506, tags: ["Premium","Spacious","Highway"] },
+  { id: 6, name: "Hyundai Verna", brand: "Hyundai", bodyType: "Sedan", fuel: "Petrol", price: 1150000, mileage: 19.0, safety: 5, seating: 5, power: 115, features: 9, transmission: "Manual/IVT", groundClearance: 170, bootSpace: 528, tags: ["Premium","Features","Performance"] },
+  { id: 7, name: "Skoda Slavia", brand: "Skoda", bodyType: "Sedan", fuel: "Petrol", price: 1350000, mileage: 18.5, safety: 5, seating: 5, power: 115, features: 8, transmission: "Manual/TC", groundClearance: 179, bootSpace: 521, tags: ["Premium","Build","Highway"] },
+  { id: 8, name: "VW Virtus", brand: "Volkswagen", bodyType: "Sedan", fuel: "Petrol", price: 1380000, mileage: 18.5, safety: 5, seating: 5, power: 115, features: 8, transmission: "Manual/TC", groundClearance: 179, bootSpace: 521, tags: ["Premium","Build","Highway"] },
+  { id: 9, name: "Tata Nexon", brand: "Tata", bodyType: "Compact SUV", fuel: "Petrol", price: 950000, mileage: 17.4, safety: 5, seating: 5, power: 120, features: 8, transmission: "Manual/AMT", groundClearance: 208, bootSpace: 382, tags: ["Safe","Popular","Value"] },
+  { id: 10, name: "Kia Sonet", brand: "Kia", bodyType: "Compact SUV", fuel: "Diesel", price: 1050000, mileage: 24.1, safety: 4, seating: 5, power: 100, features: 9, transmission: "Manual/TC", groundClearance: 211, bootSpace: 392, tags: ["Features","Premium","Efficient"] },
+  { id: 11, name: "Hyundai Venue", brand: "Hyundai", bodyType: "Compact SUV", fuel: "Diesel", price: 1080000, mileage: 23.4, safety: 4, seating: 5, power: 100, features: 9, transmission: "Manual/TC", groundClearance: 195, bootSpace: 350, tags: ["Features","Premium","Efficient"] },
+  { id: 12, name: "Maruti Brezza", brand: "Maruti Suzuki", bodyType: "Compact SUV", fuel: "Petrol", price: 1020000, mileage: 19.8, safety: 4, seating: 5, power: 103, features: 8, transmission: "Manual/AT", groundClearance: 198, bootSpace: 328, tags: ["Reliable","Efficient","Popular"] },
+  { id: 13, name: "Mahindra XUV 3X0", brand: "Mahindra", bodyType: "Compact SUV", fuel: "Diesel", price: 1100000, mileage: 20.1, safety: 5, seating: 5, power: 117, features: 9, transmission: "Manual/AMT", groundClearance: 201, bootSpace: 364, tags: ["Safe","Performance","Premium"] },
+  { id: 14, name: "Hyundai Creta", brand: "Hyundai", bodyType: "SUV", fuel: "Diesel", price: 1450000, mileage: 21.8, safety: 4, seating: 5, power: 115, features: 9, transmission: "Manual/TC", groundClearance: 190, bootSpace: 433, tags: ["Popular","Premium","Spacious"] },
+  { id: 15, name: "Kia Seltos", brand: "Kia", bodyType: "SUV", fuel: "Petrol", price: 1420000, mileage: 17.0, safety: 4, seating: 5, power: 115, features: 9, transmission: "Manual/IVT/TC", groundClearance: 190, bootSpace: 433, tags: ["Features","Premium","Performance"] },
+  { id: 16, name: "VW Taigun", brand: "Volkswagen", bodyType: "SUV", fuel: "Petrol", price: 1550000, mileage: 18.5, safety: 5, seating: 5, power: 115, features: 8, transmission: "Manual/TC", groundClearance: 188, bootSpace: 405, tags: ["Build","Safe","Performance"] },
+  { id: 17, name: "Skoda Kushaq", brand: "Skoda", bodyType: "SUV", fuel: "Petrol", price: 1520000, mileage: 18.5, safety: 5, seating: 5, power: 115, features: 8, transmission: "Manual/TC", groundClearance: 188, bootSpace: 385, tags: ["Build","Safe","Premium"] },
+  { id: 18, name: "Toyota Hyryder", brand: "Toyota", bodyType: "SUV", fuel: "Hybrid", price: 1680000, mileage: 27.9, safety: 4, seating: 5, power: 103, features: 8, transmission: "Manual/TC", groundClearance: 210, bootSpace: 373, tags: ["Efficient","Hybrid","Reliable"] },
+  { id: 19, name: "Tata Harrier", brand: "Tata", bodyType: "SUV", fuel: "Diesel", price: 1850000, mileage: 16.8, safety: 5, seating: 5, power: 170, features: 9, transmission: "Manual/AT", groundClearance: 200, bootSpace: 425, tags: ["Premium","Powerful","Safe"] },
+  { id: 20, name: "Mahindra XUV700", brand: "Mahindra", bodyType: "SUV", fuel: "Diesel", price: 1950000, mileage: 15.0, safety: 5, seating: 7, power: 185, features: 10, transmission: "Manual/AT", groundClearance: 200, bootSpace: 240, tags: ["Features","Powerful","Family"] },
+  { id: 21, name: "Tata Safari", brand: "Tata", bodyType: "SUV", fuel: "Diesel", price: 1980000, mileage: 16.3, safety: 5, seating: 7, power: 170, features: 9, transmission: "Manual/AT", groundClearance: 205, bootSpace: 447, tags: ["Family","Premium","Spacious"] },
+  { id: 22, name: "MG Gloster", brand: "MG", bodyType: "SUV", fuel: "Diesel", price: 3250000, mileage: 13.5, safety: 5, seating: 7, power: 215, features: 10, transmission: "AT", groundClearance: 210, bootSpace: 343, tags: ["Luxury","Powerful","Family"] },
+  { id: 23, name: "Toyota Fortuner", brand: "Toyota", bodyType: "SUV", fuel: "Diesel", price: 3650000, mileage: 12.9, safety: 5, seating: 7, power: 204, features: 9, transmission: "Manual/AT", groundClearance: 225, bootSpace: 296, tags: ["Premium","Off-road","Reliable"] },
+  { id: 24, name: "Kia Carens", brand: "Kia", bodyType: "MPV", fuel: "Diesel", price: 1450000, mileage: 21.0, safety: 5, seating: 7, power: 115, features: 9, transmission: "Manual/TC", groundClearance: 195, bootSpace: 216, tags: ["Family","Spacious","Efficient"] },
+  { id: 25, name: "Maruti XL6", brand: "Maruti Suzuki", bodyType: "MPV", fuel: "Petrol", price: 1250000, mileage: 20.9, safety: 4, seating: 6, power: 103, features: 8, transmission: "Manual/AT", groundClearance: 200, bootSpace: 209, tags: ["Family","Efficient","Reliable"] },
+  { id: 26, name: "Toyota Innova Crysta", brand: "Toyota", bodyType: "MPV", fuel: "Diesel", price: 2150000, mileage: 15.6, safety: 5, seating: 7, power: 150, features: 9, transmission: "Manual/AT", groundClearance: 167, bootSpace: 300, tags: ["Reliable","Family","Premium"] },
+  { id: 27, name: "Tata Nexon EV", brand: "Tata", bodyType: "Compact SUV", fuel: "Electric", price: 1550000, mileage: 312, safety: 5, seating: 5, power: 143, features: 9, transmission: "Automatic", groundClearance: 208, bootSpace: 350, tags: ["EV","Safe","Popular"] },
+  { id: 28, name: "MG ZS EV", brand: "MG", bodyType: "SUV", fuel: "Electric", price: 2100000, mileage: 461, safety: 5, seating: 5, power: 174, features: 9, transmission: "Automatic", groundClearance: 161, bootSpace: 448, tags: ["EV","Range","Premium"] },
+  { id: 29, name: "Hyundai Ioniq 5", brand: "Hyundai", bodyType: "SUV", fuel: "Electric", price: 4600000, mileage: 631, safety: 5, seating: 5, power: 216, features: 10, transmission: "Automatic", groundClearance: 163, bootSpace: 527, tags: ["EV","Luxury","Futuristic"] },
+  { id: 30, name: "BYD Atto 3", brand: "BYD", bodyType: "SUV", fuel: "Electric", price: 3400000, mileage: 521, safety: 5, seating: 5, power: 201, features: 10, transmission: "Automatic", groundClearance: 175, bootSpace: 440, tags: ["EV","Premium","Range"] },
+  { id: 31, name: "Tata Tiago EV", brand: "Tata", bodyType: "Hatchback", fuel: "Electric", price: 950000, mileage: 315, safety: 4, seating: 5, power: 74, features: 7, transmission: "Automatic", groundClearance: 170, bootSpace: 242, tags: ["EV","Affordable","City"] },
+  { id: 32, name: "BMW 3 Series", brand: "BMW", bodyType: "Luxury", fuel: "Petrol", price: 5800000, mileage: 16.0, safety: 5, seating: 5, power: 258, features: 10, transmission: "Automatic", groundClearance: 165, bootSpace: 480, tags: ["Luxury","Performance","Premium"] },
+  { id: 33, name: "Mercedes-Benz C-Class", brand: "Mercedes-Benz", bodyType: "Luxury", fuel: "Petrol", price: 6200000, mileage: 15.0, safety: 5, seating: 5, power: 204, features: 10, transmission: "Automatic", groundClearance: 157, bootSpace: 455, tags: ["Luxury","Premium","Comfort"] },
+  { id: 34, name: "Audi A4", brand: "Audi", bodyType: "Luxury", fuel: "Petrol", price: 5500000, mileage: 17.4, safety: 5, seating: 5, power: 190, features: 10, transmission: "Automatic", groundClearance: 167, bootSpace: 460, tags: ["Luxury","Premium","Balanced"] },
+  { id: 35, name: "Porsche 911", brand: "Porsche", bodyType: "Sports", fuel: "Petrol", price: 17500000, mileage: 9.0, safety: 5, seating: 2, power: 385, features: 10, transmission: "Automatic", groundClearance: 145, bootSpace: 132, tags: ["Sports","Performance","Iconic"] },
+];
+
+// ============ SCORING MODEL ============
+function scoreCar(car, prefs) {
+  const breakdown = {};
+  let reasons = [];
+  let warnings = [];
+
+  // 1. Budget fit (35%)
+  let budgetScore = 0;
+  const ratio = car.price / prefs.budget;
+  if (ratio > 1.1) {
+    budgetScore = 0;
+    warnings.push(`Over budget by ${Math.round((ratio - 1) * 100)}%`);
+  } else if (ratio > 1.0) {
+    budgetScore = 30;
+    warnings.push("Slightly over budget");
+  } else if (ratio >= 0.7) {
+    budgetScore = 100;
+    reasons.push("Optimal budget utilization");
+  } else if (ratio >= 0.5) {
+    budgetScore = 75;
+    reasons.push("Good value, well under budget");
+  } else if (ratio >= 0.3) {
+    budgetScore = 50;
+    warnings.push("Significantly under budget — could go bigger");
+  } else {
+    budgetScore = 25;
+    warnings.push("Far below your budget tier");
+  }
+  breakdown.budget = budgetScore;
+
+  // 2. Body type match (20%)
+  let bodyScore;
+  if (prefs.bodyTypes.length === 0) bodyScore = 60;
+  else if (prefs.bodyTypes.includes(car.bodyType)) {
+    bodyScore = 100;
+    reasons.push(`Matches your ${car.bodyType} preference`);
+  } else bodyScore = 0;
+  breakdown.body = bodyScore;
+
+  // 3. Fuel match (15%)
+  let fuelScore;
+  if (prefs.fuels.length === 0) fuelScore = 60;
+  else if (prefs.fuels.includes(car.fuel)) {
+    fuelScore = 100;
+    reasons.push(`${car.fuel} option available`);
+  } else fuelScore = 20;
+  breakdown.fuel = fuelScore;
+
+  // 4. Seating (10%)
+  let seatingScore;
+  if (prefs.seating.length === 0) seatingScore = 70;
+  else {
+    const minNeeded = Math.max(...prefs.seating.map(Number));
+    if (car.seating >= minNeeded) {
+      seatingScore = 100;
+      if (car.seating > minNeeded) reasons.push(`${car.seating} seats (extra capacity)`);
+    } else seatingScore = 0;
+  }
+  breakdown.seating = seatingScore;
+
+  // 5. Usage (10%)
+  let usageScore = 50;
+  if (prefs.usage) {
+    if (prefs.usage === "City") {
+      usageScore = Math.min(100, car.mileage * (car.bodyType === "Hatchback" ? 4 : 3));
+      if (car.bodyType === "Hatchback") reasons.push("Compact for city driving");
+    } else if (prefs.usage === "Highway") {
+      usageScore = (car.safety * 15) + (car.power > 100 ? 25 : 15);
+      if (car.safety === 5) reasons.push("5-star safety for highway");
+    } else if (prefs.usage === "Mixed") {
+      usageScore = (car.mileage * 1.5) + (car.safety * 10);
+    } else if (prefs.usage === "Off-road") {
+      usageScore = car.groundClearance > 200 ? 100 : (car.groundClearance > 180 ? 60 : 20);
+      if (car.groundClearance > 200) reasons.push(`${car.groundClearance}mm ground clearance`);
+    }
+  }
+  breakdown.usage = Math.min(100, usageScore);
+
+  // 6. Priority (10%)
+  let priorityScore = 50;
+  if (prefs.priority) {
+    switch (prefs.priority) {
+      case "Mileage":
+        priorityScore = Math.min(100, car.mileage * (car.fuel === "Electric" ? 0.15 : 4));
+        if (car.mileage > 20 || car.fuel === "Electric") reasons.push(`Excellent efficiency: ${car.mileage}${car.fuel === "Electric" ? "km range" : "kmpl"}`);
+        break;
+      case "Safety":
+        priorityScore = car.safety * 20;
+        if (car.safety === 5) reasons.push("5-star safety rating");
+        break;
+      case "Features":
+        priorityScore = car.features * 10;
+        if (car.features >= 9) reasons.push(`${car.features}/10 feature score`);
+        break;
+      case "Performance":
+        priorityScore = Math.min(100, car.power / 2.5);
+        if (car.power > 150) reasons.push(`${car.power} bhp powerful engine`);
+        break;
+    }
+  }
+  breakdown.priority = priorityScore;
+
+  const total = (
+    breakdown.budget * 0.35 +
+    breakdown.body * 0.20 +
+    breakdown.fuel * 0.15 +
+    breakdown.seating * 0.10 +
+    breakdown.usage * 0.10 +
+    breakdown.priority * 0.10
+  );
+
+  return {
+    score: Math.round(total),
+    breakdown,
+    reasons: reasons.slice(0, 4),
+    warnings
+  };
+}
+
+// ============ STATE ============
+const state = {
+  budget: 1000000,
+  bodyTypes: [], fuels: [], seating: [],
+  usage: null, priority: null
+};
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+function formatINR(amount) {
+  if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)}Cr`;
+  if (amount >= 100000) return `₹${(amount / 100000).toFixed(2)}L`;
+  return `₹${amount.toLocaleString('en-IN')}`;
+}
+function formatFull(amount) { return '₹' + amount.toLocaleString('en-IN'); }
+
+function showToast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function updateChipGroup(containerId, stateKey, isMulti = true) {
+  const container = document.getElementById(containerId);
+  container.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const val = chip.dataset.value;
+      if (isMulti) {
+        if (chip.classList.contains('active')) {
+          chip.classList.remove('active');
+          state[stateKey] = state[stateKey].filter(v => v !== val);
+        } else {
+          chip.classList.add('active');
+          state[stateKey].push(val);
+        }
+      } else {
+        container.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        state[stateKey] = val;
+      }
+      updateSummary();
+    });
+  });
+}
+
+function updateSummary() {
+  const parts = [];
+  if (state.budget) parts.push(formatINR(state.budget));
+  if (state.bodyTypes.length) parts.push(state.bodyTypes.join('/'));
+  if (state.fuels.length) parts.push(state.fuels.join('/'));
+  if (state.seating.length) parts.push(state.seating.join('/') + ' seats');
+  if (state.usage) parts.push(state.usage);
+  if (state.priority) parts.push(`priority: ${state.priority}`);
+  $('#selection-summary').textContent = parts.length ? `Selected: ${parts.join(' · ')}` : 'Make your selections above';
+}
+
+ $('#car-count').textContent = cars.length;
+
+const budgetSlider = $('#budget-slider');
+function updateBudgetDisplay() {
+  const val = parseInt(budgetSlider.value);
+  state.budget = val;
+  $('#budget-display').textContent = formatFull(val);
+  const pct = ((val - 300000) / (10000000 - 300000)) * 100;
+  budgetSlider.style.setProperty('--val', pct + '%');
+  updateSummary();
+}
+budgetSlider.addEventListener('input', updateBudgetDisplay);
+updateBudgetDisplay();
+
+updateChipGroup('body-types', 'bodyTypes', true);
+updateChipGroup('fuel-types', 'fuels', true);
+updateChipGroup('seating', 'seating', true);
+updateChipGroup('usage', 'usage', false);
+updateChipGroup('priority', 'priority', false);
+
+ $('#find-btn').addEventListener('click', () => {
+  if (state.bodyTypes.length === 0 && state.fuels.length === 0) {
+    showToast('Pick at least a body type or fuel to get started');
+    return;
+  }
+  $('#results').classList.remove('hidden');
+  $('#loading').classList.remove('hidden');
+  $('#results-content').classList.add('hidden');
+  const steps = [
+    'Running budget fit analysis',
+    'Scoring body type and fuel matches',
+    'Evaluating seating & usage patterns',
+    'Applying priority boost',
+    'Ranking recommendations'
+  ];
+  let step = 0;
+  const stepInterval = setInterval(() => {
+    step++;
+    if (step < steps.length) $('#loading-step').textContent = steps[step];
+    else clearInterval(stepInterval);
+  }, 300);
+  setTimeout(runAnalysis, 1500);
+});
+
+function runAnalysis() {
+  const scored = cars.map(car => ({ ...car, ...scoreCar(car, state) }));
+  let filtered = scored.filter(c => c.breakdown.budget > 0);
+  if (state.bodyTypes.length > 0) {
+    const matching = filtered.filter(c => c.breakdown.body === 100);
+    if (matching.length >= 3) filtered = matching;
+  }
+  filtered.sort((a, b) => b.score - a.score);
+  const top = filtered.slice(0, 5);
+
+  $('#loading').classList.add('hidden');
+  $('#results-content').classList.remove('hidden');
+  $('#result-budget').textContent = formatFull(state.budget);
+  $('#result-analyzed').textContent = cars.length;
+  $('#result-best-score').textContent = top.length ? top[0].score + '%' : '0%';
+
+  if (top.length === 0) {
+    $('#car-cards').innerHTML = `
+      <div class="card-glass rounded-2xl p-12 text-center">
+        <div class="text-5xl mb-4">🔍</div>
+        <h3 class="font-display text-2xl font-bold mb-2">No matches found</h3>
+        <p class="text-zinc-400">Try increasing your budget or selecting more body types / fuel options.</p>
+      </div>`;
+    return;
+  }
+  renderCarCards(top);
+  renderChart(top);
+}
+
+function renderCarCards(top) {
+  const container = $('#car-cards');
+  container.innerHTML = '';
+  top.forEach((car, idx) => {
+    const isTop = idx === 0;
+    const card = document.createElement('div');
+    card.className = 'car-card';
+    card.style.animationDelay = (idx * 0.1) + 's';
+    const reasonHtml = car.reasons.length
+      ? car.reasons.map(r => `<div class="flex items-start gap-2 text-sm text-zinc-300"><span class="text-green-400 mt-0.5">✓</span><span>${r}</span></div>`).join('')
+      : '<div class="text-sm text-zinc-500">Standard match</div>';
+    const warningHtml = car.warnings.length
+      ? car.warnings.map(w => `<div class="flex items-start gap-2 text-sm text-amber-300"><span class="mt-0.5">⚠</span><span>${w}</span></div>`).join('')
+      : '';
+    card.innerHTML = `
+      <div class="card-glass rounded-2xl overflow-hidden ${isTop ? 'border-orange-500/40' : ''}">
+        <div class="grid md:grid-cols-3 gap-0">
+          <div class="car-img aspect-video md:aspect-auto md:min-h-[280px] relative">
+            <div class="absolute inset-0 flex items-center justify-center">
+              <svg width="160" height="100" viewBox="0 0 160 100" fill="none">
+                <path d="M15 70 Q15 64 22 62 L35 44 Q42 35 55 35 L100 35 Q115 35 125 44 L140 62 Q150 64 150 70 L150 78 Q150 82 145 82 L138 82 Q136 92 125 92 Q114 92 112 82 L50 82 Q48 92 37 92 Q26 92 24 82 L18 82 Q15 82 15 78 Z"
+                      stroke="url(#carGrad${idx})" stroke-width="2" fill="rgba(255,122,24,0.05)"/>
+                <circle cx="37" cy="82" r="8" stroke="url(#carGrad${idx})" stroke-width="2" fill="#0a0a0f"/>
+                <circle cx="125" cy="82" r="8" stroke="url(#carGrad${idx})" stroke-width="2" fill="#0a0a0f"/>
+                <circle cx="37" cy="82" r="3" fill="url(#carGrad${idx})"/>
+                <circle cx="125" cy="82" r="3" fill="url(#carGrad${idx})"/>
+                <path d="M40 44 L55 38 L100 38 L115 46" stroke="url(#carGrad${idx})" stroke-width="1.5" fill="none"/>
+                <rect x="55" y="40" width="45" height="14" rx="2" stroke="url(#carGrad${idx})" stroke-width="1" fill="rgba(255,122,24,0.08)"/>
+                <path d="M70 40 L70 54 M85 40 L85 54" stroke="url(#carGrad${idx})" stroke-width="0.8"/>
+                <defs>
+                  <linearGradient id="carGrad${idx}" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#ff7a18"/><stop offset="1" stop-color="#ff3d3d"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <div class="absolute top-4 left-4 z-10 px-3 py-1 rounded-full text-xs font-bold ${isTop ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white' : 'bg-black/60 text-zinc-300 border border-white/10'}">
+              #${idx + 1} ${isTop ? '· BEST MATCH' : ''}
+            </div>
+          </div>
+          <div class="md:col-span-2 p-6">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <div class="text-xs text-orange-400 font-semibold mb-1">${car.brand.toUpperCase()}</div>
+                <h3 class="font-display text-2xl font-bold">${car.name}</h3>
+              </div>
+              <div class="relative w-16 h-16 flex-shrink-0">
+                <svg class="match-ring w-16 h-16" viewBox="0 0 64 64">
+                  <circle cx="32" cy="32" r="28" stroke="rgba(255,255,255,0.08)" stroke-width="4" fill="none"/>
+                  <circle cx="32" cy="32" r="28" stroke="url(#ringGrad${idx})" stroke-width="4" fill="none"
+                          stroke-dasharray="${2 * Math.PI * 28}"
+                          stroke-dashoffset="${2 * Math.PI * 28 * (1 - car.score / 100)}"
+                          stroke-linecap="round"/>
+                  <defs>
+                    <linearGradient id="ringGrad${idx}"><stop offset="0" stop-color="#4ade80"/><stop offset="1" stop-color="#ff7a18"/></linearGradient>
+                  </defs>
+                </svg>
+                <div class="absolute inset-0 flex items-center justify-center font-bold text-sm">${car.score}%</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 p-3 rounded-xl bg-black/30">
+              <div><div class="text-xs text-zinc-500">Price</div><div class="font-bold text-orange-300">${formatINR(car.price)}</div></div>
+              <div><div class="text-xs text-zinc-500">${car.fuel === 'Electric' ? 'Range' : 'Mileage'}</div><div class="font-bold">${car.mileage}${car.fuel === 'Electric' ? ' km' : ' kmpl'}</div></div>
+              <div><div class="text-xs text-zinc-500">Safety</div><div class="font-bold">${'★'.repeat(car.safety)}${'☆'.repeat(5-car.safety)}</div></div>
+              <div><div class="text-xs text-zinc-500">Seating</div><div class="font-bold">${car.seating} seats</div></div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-4">
+              ${car.tags.map(t => `<span class="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-400">${t}</span>`).join('')}
+              <span class="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-400">${car.bodyType}</span>
+              <span class="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-400">${car.fuel}</span>
+              <span class="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-zinc-400">${car.power} bhp</span>
+            </div>
+            <div class="space-y-1.5 pt-3 border-t border-white/5">
+              <div class="text-xs text-zinc-500 font-semibold mb-2">WHY THIS CAR</div>
+              ${reasonHtml}${warningHtml}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+let chartInstance = null;
+function renderChart(top) {
+  const ctx = document.getElementById('budgetChart');
+  if (chartInstance) chartInstance.destroy();
+  const labels = top.map(c => c.name.length > 20 ? c.name.substring(0, 18) + '…' : c.name);
+  const prices = top.map(c => c.price / 100000);
+  const budgetL = state.budget / 100000;
+  const colors = top.map(c => {
+    const ratio = c.price / state.budget;
+    if (ratio > 1.0) return 'rgba(255, 61, 61, 0.7)';
+    if (ratio >= 0.7) return 'rgba(74, 222, 128, 0.7)';
+    if (ratio >= 0.5) return 'rgba(255, 184, 77, 0.7)';
+    return 'rgba(255, 184, 77, 0.5)';
+  });
+  const borderColors = top.map(c => {
+    const ratio = c.price / state.budget;
+    if (ratio > 1.0) return '#ff3d3d';
+    if (ratio >= 0.7) return '#4ade80';
+    return '#ffb84d';
+  });
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Car Price (₹ Lakh)', data: prices, backgroundColor: colors, borderColor: borderColors, borderWidth: 2, borderRadius: 8 },
+        { label: `Your Budget (₹ ${budgetL.toFixed(1)}L)`, data: top.map(() => budgetL), type: 'line', borderColor: '#ff7a18', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#9b9ba8', font: { size: 12 } } },
+        tooltip: {
+          backgroundColor: 'rgba(20,20,30,0.95)', titleColor: '#fff', bodyColor: '#9b9ba8',
+          borderColor: 'rgba(255,122,24,0.3)', borderWidth: 1, padding: 12,
+          callbacks: {
+            label: (ctx) => {
+              if (ctx.datasetIndex === 0) {
+                const car = top[ctx.dataIndex];
+                return [`Price: ${formatFull(car.price)}`, `Budget fit: ${car.breakdown.budget}%`, `Total match: ${car.score}%`];
+              }
+              return `Budget: ${formatFull(state.budget)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { color: '#9b9ba8', callback: (v) => '₹' + v + 'L' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        x: { ticks: { color: '#9b9ba8', font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+ $('#reset-btn').addEventListener('click', () => {
+  $('#results').classList.add('hidden');
+  $$('.chip').forEach(c => c.classList.remove('active'));
+  state.bodyTypes = []; state.fuels = []; state.seating = []; state.usage = null; state.priority = null;
+  updateSummary();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+</script>
+</body>
+</html>
